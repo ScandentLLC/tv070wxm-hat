@@ -1,0 +1,4 @@
+(version 1)
+(rule "Clearance for 100R"
+	(condition "((A.NetClass == '100R' && B.NetName == 'GND') || (B.NetClass == '100R' && A.NetName == 'GND')) && !(A.insideCourtyard('J2') && B.insideCourtyard('J2'))")
+	(constraint clearance (min 0.25mm)))

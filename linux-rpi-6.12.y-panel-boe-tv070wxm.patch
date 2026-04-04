@@ -1,0 +1,985 @@
+commit bfa046d8cf2673d3ec33e6094a6d31ced8ce70eb
+Author: Richard Yao <richard@scandent.com>
+Date:   Tue Mar 31 10:15:13 2026 -0400
+
+    panel-boe-tv070wxm
+    
+    Signed-off-by: Richard Yao <richard@scandent.com>
+
+diff --git a/arch/arm/boot/dts/overlays/Makefile b/arch/arm/boot/dts/overlays/Makefile
+index e32dd9dc89f1..ec43926f7b45 100644
+--- a/arch/arm/boot/dts/overlays/Makefile
++++ b/arch/arm/boot/dts/overlays/Makefile
+@@ -36,6 +36,8 @@ dtbo-$(CONFIG_ARCH_BCM2835) += \
+ 	audremap-pi5.dtbo \
+ 	balena-fin.dtbo \
+ 	bcm2712d0.dtbo \
++	boe-tv070wxm.dtbo \
++	boe-tv070wxm-pi5.dtbo \
+ 	camera-mux-2port.dtbo \
+ 	camera-mux-4port.dtbo \
+ 	cap1106.dtbo \
+diff --git a/arch/arm/boot/dts/overlays/boe-tv070wxm-overlay.dts b/arch/arm/boot/dts/overlays/boe-tv070wxm-overlay.dts
+new file mode 100644
+index 000000000000..f85b06d67026
+--- /dev/null
++++ b/arch/arm/boot/dts/overlays/boe-tv070wxm-overlay.dts
+@@ -0,0 +1,208 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Device Tree Overlay: BOE TV070WXM-TV1-3GP1 on Raspberry Pi CM4
++ * Copyright (C) 2026 Scandent LLC. <richard@scandent.com>
++ *
++ * Panel: BOE TV070WXM-TV1-3GP1, JD9366AB DDIC, 4-lane MIPI DSI
++ * Touch: FocalTech FTS3528, I2C @ 0x38
++ * PWM:   Texas Instruments TPS92380 Backlight LED Driver
++ *
++ * Default wiring:
++ *   DSI RST        = GPIO27
++ *   Backlight PWM  = GPIO12  (PWM0 ch0)
++ *   Touch SCL      = GPIO23  (I2C6)
++ *   Touch SDA      = GPIO22  (I2C6)
++ *   Touch INT      = GPIO21
++ *   Touch RST      = GPIO26
++ *
++ * Usage in /boot/firmware/config.txt:
++ *   display_auto_detect=0
++ *   dtoverlay=vc4-kms-v3d
++ *   dtoverlay=boe-tv070wxm
++ *
++ * Notes on Steam Deck equivalence:
++ * - Touch IRQ in Steam Deck ACPI is Level + ActiveLow + PullUp.
++ * - Steam Deck ACPI exposes _DSW/_PS0/_PS3/_DSM on the touch device,
++ *   but there is no 1:1 overlay-only DT equivalent for those methods.
++ *   'wakeup-source' below is the closest useful DT-side hint.
++ * - The Steam Deck uses the O2Micro OZ536 Backlight LED Driver. This is not
++ *   avaliable from public distributors, so we are using the Texas Instruments
++ *   TPS92380 Backlight LED Driver. Therefore, the ACPI brightness table in the
++ *   steam deck is non-equivalent and we must use our own.
++ * - A reported Steam Deck LCD PWM frequency is ~1100 Hz below full brightness,
++ *   which corresponds to a period of about 909091 ns. We expect our dimming
++ *   ratio to exceed that of the "Up to 100:1 true analog dimming ratio" that
++ *   O2Micro publicly documents for the OZ536.
++ * - The steam deck panel is natively portrait and must be rotated either 90 or
++ *   270 degrees into landscape. We elect to rotate 270 degrees. This only
++ *   affects the ptty. The X11 server needs a configuration file for both touch
++ *   and the panel. The steam deck itself has changes elsewhere in the kernel
++ *   and userspace to handle this. The kernel code checks for the motherboard,
++ *   which we cannot replicate.
++ */
++
++/dts-v1/;
++/plugin/;
++
++/ {
++    compatible = "brcm,bcm2711";
++
++    /* DSI host + panel */
++    fragment@0 {
++        target = <&dsi1>;
++        __overlay__ {
++            status = "okay";
++            #address-cells = <1>;
++            #size-cells = <0>;
++
++            port {
++                dsi1_out_port: endpoint {
++                    remote-endpoint = <&panel_dsi_in>;
++                    data-lanes = <0 1 2 3>;
++                };
++            };
++
++            panel: panel@0 {
++                compatible = "boe,tv070wxm-tv1-3gp1";
++                reg = <0>;
++		rotation = <270>;
++
++                reset-gpios = <&gpio 27 1>; /* GPIO27, active low */
++
++                vdd-supply = <&panel_vdd>;
++                vccio-supply = <&panel_vccio>;
++
++                backlight = <&panel_backlight>;
++
++                port {
++                    panel_dsi_in: endpoint {
++                        remote-endpoint = <&dsi1_out_port>;
++                        data-lanes = <0 1 2 3>;
++                    };
++                };
++            };
++        };
++    };
++
++    /* GPIO pin muxing / bias */
++    fragment@1 {
++        target = <&gpio>;
++        __overlay__ {
++            pwm_pins: pwm_pins {
++                brcm,pins = <12>;
++                brcm,function = <4>; /* ALT0 = PWM0 */
++            };
++
++            touch_int_pin: touch_int_pin {
++                brcm,pins = <21>;
++                brcm,function = <0>; /* input */
++                brcm,pull = <2>;     /* pull-up */
++            };
++
++            touch_rst_pin: touch_rst_pin {
++                brcm,pins = <26>;
++                brcm,function = <1>; /* output */
++                brcm,pull = <0>;     /* no pull */
++            };
++        };
++    };
++
++    /* PWM controller */
++    fragment@2 {
++        target = <&pwm>;
++        __overlay__ {
++            pinctrl-names = "default";
++            pinctrl-0 = <&pwm_pins>;
++            status = "okay";
++        };
++    };
++
++    /* Backlight driver */
++    fragment@3 {
++        target-path = "/";
++        __overlay__ {
++            panel_backlight: panel_backlight {
++                compatible = "pwm-backlight";
++                pwms = <&pwm 0 909091 0>;
++                brightness-levels = <0 4 8 16 32 64 128 192 255>;
++                default-brightness-level = <6>;
++
++                status = "okay";
++            };
++        };
++    };
++
++    /* Touchscreen on I2C6 – CM4 only */
++    fragment@4 {
++        target = <&i2c6>;
++        __overlay__ {
++            #address-cells = <1>;
++            #size-cells = <0>;
++            status = "okay";
++	    clock-frequency = <400000>;
++
++
++
++            touchscreen: fts3528@38 {
++                compatible = "hid-over-i2c";
++                reg = <0x38>;
++                //panel = <&panel>;
++
++                pinctrl-names = "default";
++                pinctrl-0 = <&touch_int_pin &touch_rst_pin>;
++
++                interrupt-parent = <&gpio>;
++                interrupts = <21 8>; /* GPIO21, IRQ_TYPE_LEVEL_LOW */
++
++                wakeup-source;
++                hid-descr-addr = <0x0000>;
++            };
++        };
++    };
++
++    /*
++     * Touch reset held deasserted.
++     * gpios third cell = 0 => active high
++     */
++    fragment@5 {
++        target = <&gpio>;
++        __overlay__ {
++            touch_reset_hog: touch-reset-hog {
++                gpio-hog;
++                gpios = <26 0>; /* GPIO26, active high */
++                output-high;
++                line-name = "touch-reset";
++            };
++        };
++    };
++
++    /* Fixed regulators for the panel (always-on rails) */
++    fragment@6 {
++        target-path = "/";
++        __overlay__ {
++            panel_vdd: regulator-panel-vdd {
++                compatible = "regulator-fixed";
++                regulator-name = "panel-vdd";
++                regulator-min-microvolt = <3300000>;
++                regulator-max-microvolt = <3300000>;
++                /* No gpio = always on. Remove the comment and add a gpio
++                   later if you get a real power-switch GPIO. */
++            };
++
++            panel_vccio: regulator-panel-vccio {
++                compatible = "regulator-fixed";
++                regulator-name = "panel-vccio";
++                regulator-min-microvolt = <1800000>;
++                regulator-max-microvolt = <1800000>;
++            };
++        };
++    };
++
++    /* Set I2C6 to use GPIO 22 and 23 */
++    fragment@7 {
++        target = <&i2c6_pins>;
++        __overlay__ {
++            brcm,pins = <22 23>;
++        };
++    };
++};
+diff --git a/arch/arm/boot/dts/overlays/boe-tv070wxm-pi5-overlay.dts b/arch/arm/boot/dts/overlays/boe-tv070wxm-pi5-overlay.dts
+new file mode 100644
+index 000000000000..3c518b2e1bc7
+--- /dev/null
++++ b/arch/arm/boot/dts/overlays/boe-tv070wxm-pi5-overlay.dts
+@@ -0,0 +1,201 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Device Tree Overlay: BOE TV070WXM-TV1-3GP1 on Raspberry Pi 5
++ * Copyright (C) 2026 Scandent LLC. <richard@scandent.com>
++ *
++ * Panel: BOE TV070WXM-TV1-3GP1, JD9366AB DDIC, 4-lane MIPI DSI
++ * Touch: FocalTech FTS3528, I2C @ 0x38
++ * PWM:   Texas Instruments TPS92380 Backlight LED Driver
++ *
++ * Default wiring:
++ *   DSI RST        = GPIO27
++ *   Backlight PWM  = GPIO12  (PWM0 ch0)
++ *   Touch SCL      = GPIO23  (I2C3)
++ *   Touch SDA      = GPIO22  (I2C3)
++ *   Touch INT      = GPIO21
++ *   Touch RST      = GPIO26
++ *
++ * Usage in /boot/firmware/config.txt:
++ *   display_auto_detect=0
++ *   dtoverlay=vc4-kms-v3d-pi5
++ *   dtoverlay=boe-tv070wxm
++ *
++ * Notes on Steam Deck equivalence:
++ * - Touch IRQ in Steam Deck ACPI is Level + ActiveLow + PullUp.
++ * - Steam Deck ACPI exposes _DSW/_PS0/_PS3/_DSM on the touch device,
++ *   but there is no 1:1 overlay-only DT equivalent for those methods.
++ *   'wakeup-source' below is the closest useful DT-side hint.
++ * - The Steam Deck uses the O2Micro OZ536 Backlight LED Driver. This is not
++ *   avaliable from public distributors, so we are using the Texas Instruments
++ *   TPS92380 Backlight LED Driver. Therefore, the ACPI brightness table in the
++ *   steam deck is non-equivalent and we must use our own.
++ * - A reported Steam Deck LCD PWM frequency is ~1100 Hz below full brightness,
++ *   which corresponds to a period of about 909091 ns. We expect our dimming
++ *   ratio to exceed that of the "Up to 100:1 true analog dimming ratio" that
++ *   O2Micro publicly documents for the OZ536.
++ * - The steam deck panel is natively portrait and must be rotated either 90 or
++ *   270 degrees into landscape. We elect to rotate 270 degrees. This only
++ *   affects the ptty. The X11 server needs a configuration file for both touch
++ *   and the panel. The steam deck itself has changes elsewhere in the kernel
++ *   and userspace to handle this. The kernel code checks for the motherboard,
++ *   which we cannot replicate.
++ */
++
++/dts-v1/;
++/plugin/;
++
++/ {
++    compatible = "brcm,bcm2712";
++
++    /* DSI host + panel */
++    fragment@0 {
++        target = <&dsi1>;
++        __overlay__ {
++            status = "okay";
++            #address-cells = <1>;
++            #size-cells = <0>;
++
++            port {
++                dsi1_out_port: endpoint {
++                    remote-endpoint = <&panel_dsi_in>;
++                    data-lanes = <0 1 2 3>;
++                };
++            };
++
++            panel: panel@0 {
++                compatible = "boe,tv070wxm-tv1-3gp1";
++                reg = <0>;
++		rotation = <270>;
++
++                reset-gpios = <&gpio 27 1>; /* GPIO27, active low */
++
++                vdd-supply = <&panel_vdd>;
++                vccio-supply = <&panel_vccio>;
++
++                backlight = <&panel_backlight>;
++
++                port {
++                    panel_dsi_in: endpoint {
++                        remote-endpoint = <&dsi1_out_port>;
++                        data-lanes = <0 1 2 3>;
++                    };
++                };
++            };
++        };
++    };
++
++    /* GPIO pin muxing / bias */
++    fragment@1 {
++        target = <&gpio>;
++        __overlay__ {
++            pwm_pins: pwm_pins {
++                brcm,pins = <12>;
++                brcm,function = <4>; /* ALT0 = PWM0 */
++            };
++
++            touch_int_pin: touch_int_pin {
++                brcm,pins = <21>;
++                brcm,function = <0>; /* input */
++                brcm,pull = <2>;     /* pull-up */
++            };
++
++            touch_rst_pin: touch_rst_pin {
++                brcm,pins = <26>;
++                brcm,function = <1>; /* output */
++                brcm,pull = <0>;     /* no pull */
++            };
++        };
++    };
++
++    /* PWM controller */
++    fragment@2 {
++        target = <&pwm>;
++        __overlay__ {
++            pinctrl-names = "default";
++            pinctrl-0 = <&pwm_pins>;
++            status = "okay";
++        };
++    };
++
++    /* Backlight driver */
++    fragment@3 {
++        target-path = "/";
++        __overlay__ {
++            panel_backlight: panel_backlight {
++                compatible = "pwm-backlight";
++                pwms = <&pwm 0 909091 0>;
++                brightness-levels = <0 4 8 16 32 64 128 192 255>;
++                default-brightness-level = <6>;
++
++                status = "okay";
++            };
++        };
++    };
++
++    /* Touchscreen on I2C3 – Raspberry Pi 5 / CM5 */
++    fragment@4 {
++        target = <&i2c3>;
++        __overlay__ {
++            #address-cells = <1>;
++            #size-cells = <0>;
++            status = "okay";
++	    clock-frequency = <400000>;
++
++            pinctrl-names = "default";
++            pinctrl-0 = <&rp1_i2c3_22_23>;   /* GPIO22=SDA, GPIO23=SCL */
++
++            touchscreen: fts3528@38 {
++                compatible = "hid-over-i2c";
++                reg = <0x38>;
++                //panel = <&panel>;
++
++                pinctrl-names = "default";
++                pinctrl-0 = <&touch_int_pin &touch_rst_pin>;
++
++                interrupt-parent = <&gpio>;
++                interrupts = <21 8>; /* GPIO21, IRQ_TYPE_LEVEL_LOW */
++
++                wakeup-source;
++                hid-descr-addr = <0x0000>;
++            };
++        };
++    };
++
++    /*
++     * Touch reset held deasserted.
++     * gpios third cell = 0 => active high
++     */
++    fragment@5 {
++        target = <&gpio>;
++        __overlay__ {
++            touch_reset_hog: touch-reset-hog {
++                gpio-hog;
++                gpios = <26 0>; /* GPIO26, active high */
++                output-high;
++                line-name = "touch-reset";
++            };
++        };
++    };
++
++    /* Fixed regulators for the panel (always-on rails) */
++    fragment@6 {
++        target-path = "/";
++        __overlay__ {
++            panel_vdd: regulator-panel-vdd {
++                compatible = "regulator-fixed";
++                regulator-name = "panel-vdd";
++                regulator-min-microvolt = <3300000>;
++                regulator-max-microvolt = <3300000>;
++                /* No gpio = always on. Remove the comment and add a gpio
++                   later if you get a real power-switch GPIO. */
++            };
++
++            panel_vccio: regulator-panel-vccio {
++                compatible = "regulator-fixed";
++                regulator-name = "panel-vccio";
++                regulator-min-microvolt = <1800000>;
++                regulator-max-microvolt = <1800000>;
++            };
++        };
++    };
++};
+diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
+index c093242c26a7..67d51e0c2ddd 100644
+--- a/drivers/gpu/drm/panel/Kconfig
++++ b/drivers/gpu/drm/panel/Kconfig
+@@ -87,6 +87,16 @@ config DRM_PANEL_BOE_TV101WUM_NL6
+ 	  Say Y here if you want to support for BOE TV101WUM and AUO KD101N80
+ 	  45NA WUXGA PANEL DSI Video Mode panel
+ 
++config DRM_PANEL_BOE_TV070WXM
++	tristate "BOE TV070WXM-TV1-3GP1 WXGA DSI panel"
++	depends on OF
++	depends on DRM_MIPI_DSI
++	depends on BACKLIGHT_CLASS_DEVICE
++	help
++	  Say Y here if you want to enable support for the BOE
++	  TV070WXM-TV1-3GP1 7" 800x1280 MIPI DSI panel using the
++	  Jadard JD9366AB display driver IC.
++
+ config DRM_PANEL_BOE_TV101WUM_LL2
+ 	tristate "BOE TV101WUM LL2 1200x1920 panel"
+ 	depends on OF
+diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
+index 5760902b7a55..3b88ab5cc31f 100644
+--- a/drivers/gpu/drm/panel/Makefile
++++ b/drivers/gpu/drm/panel/Makefile
+@@ -8,6 +8,7 @@ obj-$(CONFIG_DRM_PANEL_BOE_HIMAX8279D) += panel-boe-himax8279d.o
+ obj-$(CONFIG_DRM_PANEL_BOE_TH101MB31UIG002_28A) += panel-boe-th101mb31ig002-28a.o
+ obj-$(CONFIG_DRM_PANEL_BOE_TV101WUM_LL2) += panel-boe-tv101wum-ll2.o
+ obj-$(CONFIG_DRM_PANEL_BOE_TV101WUM_NL6) += panel-boe-tv101wum-nl6.o
++obj-$(CONFIG_DRM_PANEL_BOE_TV070WXM) += panel-boe-tv070wxm.o
+ obj-$(CONFIG_DRM_PANEL_DSI_CM) += panel-dsi-cm.o
+ obj-$(CONFIG_DRM_PANEL_LVDS) += panel-lvds.o
+ obj-$(CONFIG_DRM_PANEL_SIMPLE) += panel-simple.o
+diff --git a/drivers/gpu/drm/panel/panel-boe-tv070wxm.c b/drivers/gpu/drm/panel/panel-boe-tv070wxm.c
+new file mode 100644
+index 000000000000..232fbd0d5f50
+--- /dev/null
++++ b/drivers/gpu/drm/panel/panel-boe-tv070wxm.c
+@@ -0,0 +1,504 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * BOE TV070WXM-TV1-3GP1 7" 800x1280 MIPI DSI panel driver
++ *
++ * Display driver IC: Jadard JD9366AB-3
++ * Panel: BOE TV070WXM-TV1-3GP1, 7" IPS, 800x1280, 4-lane MIPI DSI
++ * Touch: FocalTech FTS3528 (separate I2C device, not handled here)
++ *
++ * Init sequence from BOE-provided YMK initialisation table for the
++ * TV070WXM-TV1-3GP1 panel variant.
++ *
++ * The JD9366AB uses page-switching register 0xE0 and password unlock
++ * sequence (E1=0x93, E2=0x65, E3=0xF8) to access extended registers.
++ *
++ * Copyright (c) 2026, Scandent LLC
++ *
++ * Author: Richard Yao <richard@scandent.com>
++ */
++
++#include <drm/drm_mipi_dsi.h>
++#include <drm/drm_modes.h>
++#include <drm/drm_panel.h>
++#include <drm/drm_print.h>
++
++#include <linux/gpio/consumer.h>
++#include <linux/delay.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/regulator/consumer.h>
++
++struct boe_panel {
++	struct drm_panel panel;
++	struct mipi_dsi_device *dsi;
++	enum drm_panel_orientation orientation;
++	struct regulator *vdd;
++	struct regulator *vccio;
++	struct gpio_desc *reset;
++};
++
++#define JD9366AB_SWITCH_PAGE	0xe0
++
++#define jd9366ab_switch_page(ctx, page) \
++	mipi_dsi_dcs_write_seq_multi(ctx, JD9366AB_SWITCH_PAGE, (page))
++
++static void jd9366ab_unlock(struct mipi_dsi_multi_context *ctx)
++{
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xe1, 0x93);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xe2, 0x65);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xe3, 0xf8);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0x80, 0x03);
++}
++
++static inline struct boe_panel *to_boe_panel(struct drm_panel *panel)
++{
++	return container_of(panel, struct boe_panel, panel);
++}
++
++static int boe_tv070wxm_init(struct boe_panel *boe)
++{
++	struct mipi_dsi_multi_context ctx = { .dsi = boe->dsi };
++
++	/*
++	 * Pre-init: DSI/PHY configuration registers (Jadard extended).
++	 * YMK type 0x39 = DCS Long Write; mipi_dsi_dcs_write_seq_multi
++	 * selects DCS Long Write (0x39) for 2+ parameter bytes.
++	 */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0xB7, 0x10, 0x02);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0xBD, 0x00, 0x00);
++
++	/* Page 0 — unlock */
++	jd9366ab_switch_page(&ctx, 0x00);
++	jd9366ab_unlock(&ctx);
++
++	/* --- Page 1: VCOM, power, TCON, gamma --- */
++	jd9366ab_switch_page(&ctx, 0x01);
++
++	/* VCOM */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x00, 0x00);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x01, 0x8C);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x03, 0x00);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x04, 0xA8);
++
++	/* Gamma power: VGMP, VGMN */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x17, 0x00);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x18, 0xB1);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x19, 0x01);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x1A, 0x00);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x1B, 0xB1);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x1C, 0x01);
++
++	/* Gate power */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x1F, 0x3E);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x20, 0x2D);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x21, 0x2D);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x22, 0x7E);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x26, 0xDF);
++
++	/* SETPANEL: SS=1, BGR=1 */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x37, 0x19);
++
++	/* RGBCYC */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x38, 0x05);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x39, 0x00);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x3A, 0x01);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x3C, 0x78);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x3D, 0xFF);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x3E, 0xFF);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x3F, 0xFF);
++
++	/* TCON */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x40, 0x06);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x41, 0xA0);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x43, 0x08);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x44, 0x09);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x45, 0x28);
++
++	/* Power voltage */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x55, 0x0F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x57, 0x89);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x58, 0x0A);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x59, 0x0A);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x5A, 0x28);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x5B, 0x19);
++
++	/* Positive gamma */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x5D, 0x7C);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x5E, 0x67);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x5F, 0x58);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x60, 0x4C);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x61, 0x47);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x62, 0x38);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x63, 0x3A);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x64, 0x20);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x65, 0x36);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x66, 0x34);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x67, 0x32);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x68, 0x4E);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x69, 0x3B);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x6A, 0x40);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x6B, 0x31);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x6C, 0x2B);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x6D, 0x1D);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x6E, 0x0B);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x6F, 0x00);
++
++	/* Negative gamma */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x70, 0x7C);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x71, 0x67);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x72, 0x58);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x73, 0x4C);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x74, 0x47);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x75, 0x38);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x76, 0x3A);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x77, 0x20);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x78, 0x36);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x79, 0x34);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x7A, 0x32);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x7B, 0x4E);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x7C, 0x3B);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x7D, 0x40);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x7E, 0x31);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x7F, 0x2B);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x80, 0x1D);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x81, 0x0B);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x82, 0x00);
++
++	/* --- Page 2: GIP --- */
++	jd9366ab_switch_page(&ctx, 0x02);
++
++	/* GIP_L pin mapping */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x00, 0x45);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x01, 0x45);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x02, 0x44);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x03, 0x44);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x04, 0x47);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x05, 0x47);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x06, 0x46);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x07, 0x46);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x08, 0x40);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x09, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x0A, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x0B, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x0C, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x0D, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x0E, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x0F, 0x41);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x10, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x11, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x12, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x13, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x14, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x15, 0x1F);
++
++	/* GIP_R pin mapping */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x16, 0x45);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x17, 0x45);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x18, 0x44);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x19, 0x44);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x1A, 0x47);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x1B, 0x47);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x1C, 0x46);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x1D, 0x46);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x1E, 0x40);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x1F, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x20, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x21, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x22, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x23, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x24, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x25, 0x41);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x26, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x27, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x28, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x29, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x2A, 0x1F);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x2B, 0x1F);
++
++	/* GIP timing */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x58, 0x40);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x5B, 0x10);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x5C, 0x06);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x5D, 0x20);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x5E, 0x01);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x5F, 0x02);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x63, 0x66);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x64, 0x66);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x67, 0x32);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x68, 0x08);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x69, 0x66);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x6A, 0x66);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x6B, 0x08);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x6C, 0x00);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x6D, 0x04);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x6E, 0x04);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x6F, 0x88);
++
++	/* --- Page 3 --- */
++	jd9366ab_switch_page(&ctx, 0x03);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x98, 0x3E);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x9B, 0x04);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0xAF, 0x00);
++
++	/* --- Page 4 --- */
++	jd9366ab_switch_page(&ctx, 0x04);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x09, 0x10);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x0E, 0x48);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x2C, 0x2B);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x2F, 0x44);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x36, 0x2A);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x49, 0xFF);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x51, 0xFF);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x9A, 0x21);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x9B, 0x25);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x9C, 0x26);
++
++	/* --- Page 0: watchdog, CABC, tear on, sleep out, display on --- */
++	jd9366ab_switch_page(&ctx, 0x00);
++
++	/* Watchdog timer */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0xE6, 0x02);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0xE7, 0x06);
++
++	/* CABC / brightness */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x51, 0xFF);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x53, 0x2C);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x55, 0x00);
++
++	/* Page 3: additional setting */
++	jd9366ab_switch_page(&ctx, 0x03);
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0xAB, 0x0E);
++
++	/* Back to Page 0 */
++	jd9366ab_switch_page(&ctx, 0x00);
++
++	/* Enable tearing effect output */
++	mipi_dsi_dcs_write_seq_multi(&ctx, 0x35, 0x00);
++
++	/* Sleep out */
++	mipi_dsi_dcs_exit_sleep_mode_multi(&ctx);
++	mipi_dsi_msleep(&ctx, 120);
++
++	/* Display on */
++	mipi_dsi_dcs_set_display_on_multi(&ctx);
++
++	return ctx.accum_err;
++}
++
++static int boe_tv070wxm_disable(struct drm_panel *panel)
++{
++	struct boe_panel *boe = to_boe_panel(panel);
++	struct mipi_dsi_multi_context ctx = { .dsi = boe->dsi };
++
++	mipi_dsi_dcs_set_display_off_multi(&ctx);
++	mipi_dsi_msleep(&ctx, 50);
++	mipi_dsi_dcs_enter_sleep_mode_multi(&ctx);
++	mipi_dsi_msleep(&ctx, 120);
++
++	return ctx.accum_err;
++}
++
++static int boe_tv070wxm_prepare(struct drm_panel *panel)
++{
++	struct boe_panel *boe = to_boe_panel(panel);
++	int ret;
++
++	ret = regulator_enable(boe->vccio);
++	if (ret)
++		return ret;
++
++	ret = regulator_enable(boe->vdd);
++	if (ret)
++		goto err_vdd;
++
++	/*
++	 * Power-on sequence per BOE spec Table 14 and JD9366 §9.5.2:
++	 * 1. Power rails ramp (no limit)
++	 * 2. Wait tRPWIRES >= 5ms
++	 * 3. Assert reset low for tRESETL >= 10us
++	 * 4. De-assert reset, wait tRESETH >= 5ms
++	 *
++	 * Actually following these using usleep_range() can cause the panel to
++	 * fail to work following a reboot on the Raspberry Pi 5, so we
++	 * loosened the timings to these values that we empirically determined
++	 * to be reliable.
++	 */
++	msleep(5);
++
++	gpiod_set_value_cansleep(boe->reset, 1);
++	msleep(20);
++
++	gpiod_set_value_cansleep(boe->reset, 0);
++	msleep(50);
++
++	ret = boe_tv070wxm_init(boe);
++	if (ret)
++		goto err_init;
++
++	return 0;
++
++err_init:
++	gpiod_set_value_cansleep(boe->reset, 1);
++	regulator_disable(boe->vdd);
++err_vdd:
++	regulator_disable(boe->vccio);
++	return ret;
++}
++
++static int boe_tv070wxm_unprepare(struct drm_panel *panel)
++{
++	struct boe_panel *boe = to_boe_panel(panel);
++
++	gpiod_set_value_cansleep(boe->reset, 1);
++	msleep(120);
++
++	regulator_disable(boe->vdd);
++	regulator_disable(boe->vccio);
++
++	return 0;
++}
++
++/*
++ * Display timing from JD9366AB EVB settings matching BOE spec Table 13:
++ *   HS=20, HBP=30, HFP=30 => htotal=880
++ *   VS=4,  VBP=9,  VFP=30 => vtotal=1323
++ *   clock = 880 * 1323 * 60 = 69,854 kHz
++ */
++static const struct drm_display_mode boe_tv070wxm_mode = {
++	.clock		= 69854,
++	.hdisplay	= 800,
++	.hsync_start	= 800 + 30,
++	.hsync_end	= 800 + 30 + 20,
++	.htotal		= 800 + 30 + 20 + 30,
++	.vdisplay	= 1280,
++	.vsync_start	= 1280 + 30,
++	.vsync_end	= 1280 + 30 + 4,
++	.vtotal		= 1280 + 30 + 4 + 9,
++	.width_mm	= 94,
++	.height_mm	= 151,
++	.type		= DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
++};
++
++static int boe_tv070wxm_get_modes(struct drm_panel *panel,
++				  struct drm_connector *connector)
++{
++	struct boe_panel *boe = to_boe_panel(panel);
++	struct drm_display_mode *mode;
++
++	mode = drm_mode_duplicate(connector->dev, &boe_tv070wxm_mode);
++	if (!mode) {
++		DRM_DEV_ERROR(&boe->dsi->dev,
++			      "failed to add mode %ux%u@%u\n",
++			      boe_tv070wxm_mode.hdisplay,
++			      boe_tv070wxm_mode.vdisplay,
++			      drm_mode_vrefresh(&boe_tv070wxm_mode));
++		return -ENOMEM;
++	}
++
++	drm_mode_set_name(mode);
++	drm_mode_probed_add(connector, mode);
++
++	connector->display_info.width_mm = mode->width_mm;
++	connector->display_info.height_mm = mode->height_mm;
++
++	return 1;
++}
++
++static enum drm_panel_orientation
++boe_tv070wxm_get_orientation(struct drm_panel *panel)
++{
++	return to_boe_panel(panel)->orientation;
++}
++
++static const struct drm_panel_funcs boe_tv070wxm_funcs = {
++	.disable	= boe_tv070wxm_disable,
++	.unprepare	= boe_tv070wxm_unprepare,
++	.prepare	= boe_tv070wxm_prepare,
++	.get_modes	= boe_tv070wxm_get_modes,
++	.get_orientation = boe_tv070wxm_get_orientation,
++};
++
++static int boe_tv070wxm_probe(struct mipi_dsi_device *dsi)
++{
++	struct device *dev = &dsi->dev;
++	struct boe_panel *boe;
++	int ret;
++
++	boe = devm_kzalloc(dev, sizeof(*boe), GFP_KERNEL);
++	if (!boe)
++		return -ENOMEM;
++
++	boe->vdd = devm_regulator_get(dev, "vdd");
++	if (IS_ERR(boe->vdd))
++		return dev_err_probe(dev, PTR_ERR(boe->vdd),
++				     "Failed to get vdd supply\n");
++
++	boe->vccio = devm_regulator_get(dev, "vccio");
++	if (IS_ERR(boe->vccio))
++		return dev_err_probe(dev, PTR_ERR(boe->vccio),
++				     "Failed to get vccio supply\n");
++
++	boe->reset = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
++	if (IS_ERR(boe->reset))
++		return dev_err_probe(dev, PTR_ERR(boe->reset),
++				     "Failed to get reset GPIO\n");
++
++	ret = of_drm_get_panel_orientation(dev->of_node, &boe->orientation);
++	if (ret)
++		return dev_err_probe(dev, ret, "Failed to get orientation\n");
++
++	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST | MIPI_DSI_CLOCK_NON_CONTINUOUS | MIPI_DSI_MODE_NO_EOT_PACKET | MIPI_DSI_MODE_LPM;
++	dsi->format = MIPI_DSI_FMT_RGB888;
++	dsi->lanes = 4;
++
++	drm_panel_init(&boe->panel, dev, &boe_tv070wxm_funcs,
++		       DRM_MODE_CONNECTOR_DSI);
++
++	/* Without this, there is no DSI communication */
++	boe->panel.prepare_prev_first = true;
++
++	ret = drm_panel_of_backlight(&boe->panel);
++	if (ret)
++		return ret;
++
++	drm_panel_add(&boe->panel);
++
++	mipi_dsi_set_drvdata(dsi, boe);
++	boe->dsi = dsi;
++
++	ret = mipi_dsi_attach(dsi);
++	if (ret < 0) {
++		drm_panel_remove(&boe->panel);
++		return ret;
++	}
++
++	return 0;
++}
++
++static void boe_tv070wxm_remove(struct mipi_dsi_device *dsi)
++{
++	struct boe_panel *boe = mipi_dsi_get_drvdata(dsi);
++
++	mipi_dsi_detach(dsi);
++	drm_panel_remove(&boe->panel);
++}
++
++static const struct of_device_id boe_tv070wxm_of_match[] = {
++	{ .compatible = "boe,tv070wxm-tv1-3gp1" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, boe_tv070wxm_of_match);
++
++static struct mipi_dsi_driver boe_tv070wxm_driver = {
++	.probe	= boe_tv070wxm_probe,
++	.remove	= boe_tv070wxm_remove,
++	.driver	= {
++		.name		= "panel-boe-tv070wxm",
++		.of_match_table	= boe_tv070wxm_of_match,
++	},
++};
++module_mipi_dsi_driver(boe_tv070wxm_driver);
++
++MODULE_AUTHOR("Richard Yao <richard@scandent.com>");
++MODULE_DESCRIPTION("BOE TV070WXM-TV1-3GP1 MIPI DSI panel driver (JD9366AB)");
++MODULE_LICENSE("GPL");

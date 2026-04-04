@@ -1,0 +1,6 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "design_parts")(type "KiCad")(uri "/home/akshay/hardware-projects/SD-handheld/CM4-HH-DSI-1S/pcb/design_parts.kicad_sym")(options "")(descr ""))
+  (lib (name "CM4IO")(type "KiCad")(uri "/home/akshay/hardware-projects/CM4IO-Kicad/CM4IO.kicad_sym")(options "")(descr ""))
+  (lib (name "tv070-hat")(type "KiCad")(uri "${KIPRJMOD}/tv070-hat.kicad_sym")(options "")(descr ""))
+)
