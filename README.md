@@ -209,3 +209,4 @@ The linux kernel patch is the primary (and at the time of writing, the only) exc
 ## Credits
 - Hardware engineering / documentation — Akshay Athalye
 - Software engineering / documentation — Richard Yao
+- HAT Evaluation / Comments — Jeff Geerling
