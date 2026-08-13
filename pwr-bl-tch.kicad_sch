@@ -10039,7 +10039,7 @@
 				(hide yes)
 			)
 		)
-		(property "Description" "Inductor, small symbol"
+		(property "Description" "10UH 4A 68 MOHM"
 			(at 153.67 22.86 0)
 			(effects
 				(font
@@ -10057,7 +10057,7 @@
 				(hide yes)
 			)
 		)
-		(property "Manufacturer" ""
+		(property "Manufacturer" "Pulse Electronics"
 			(at 153.67 22.86 90)
 			(effects
 				(font
@@ -10066,7 +10066,7 @@
 				(hide yes)
 			)
 		)
-		(property "Mfg. Part No." ""
+		(property "Mfg. Part No." "BMRF00060630100MA1"
 			(at 153.67 22.86 90)
 			(effects
 				(font
@@ -10136,7 +10136,7 @@
 				(hide yes)
 			)
 		)
-		(property "Description" "Raspberry Pi GPIO socket"
+		(property "Description" "GPIO FEMALE HEADER  PI"
 			(at 89.408 128.778 0)
 			(effects
 				(font
@@ -10155,7 +10155,7 @@
 				(hide yes)
 			)
 		)
-		(property "Manufacturer" ""
+		(property "Manufacturer" "Adafruit"
 			(at 73.66 99.06 0)
 			(effects
 				(font
@@ -10164,7 +10164,7 @@
 				(hide yes)
 			)
 		)
-		(property "Mfg. Part No." ""
+		(property "Mfg. Part No." "2222"
 			(at 73.66 99.06 0)
 			(effects
 				(font
